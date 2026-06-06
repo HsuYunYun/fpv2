@@ -305,42 +305,152 @@
         }
 
         // ==========================================
-        // ★ 生成 台北101 地標建築
+        // ★ 生成較完整的台北101 3D模型
         // ==========================================
-        const t101Mat = new THREE.MeshStandardMaterial({ color: 0x5a9a8b, roughness: 0.2, metalness: 0.7 }); // 經典藍綠色玻璃
-        const t101 = new THREE.Group();
+        function makeTaipei101() {
+            const group = new THREE.Group();
 
-        // 底部基座
-        const base = new THREE.Mesh(new THREE.BoxGeometry(60, 80, 60), t101Mat);
-        base.position.y = 40;
-        base.castShadow = true; base.receiveShadow = true;
-        t101.add(base);
+            const glassMat = new THREE.MeshStandardMaterial({
+                color: 0x4f9f91,
+                roughness: 0.18,
+                metalness: 0.65
+            });
 
-        // 8層倒梯形斗拱結構
-        for (let i = 0; i < 8; i++) {
-            // 利用 CylinderGeometry(上圓半徑, 下圓半徑, 高, 邊數) 生成梯形方塊
-            const section = new THREE.Mesh(new THREE.CylinderGeometry(38, 30, 40, 4), t101Mat);
-            section.rotation.y = Math.PI / 4; // 轉45度變成方形
-            section.position.y = 80 + 20 + (i * 40);
-            section.castShadow = true; section.receiveShadow = true;
-            t101.add(section);
+            const darkGlassMat = new THREE.MeshStandardMaterial({
+                color: 0x1f4f4a,
+                roughness: 0.25,
+                metalness: 0.7
+            });
+
+            const edgeMat = new THREE.MeshStandardMaterial({
+                color: 0xcfd8cf,
+                roughness: 0.35,
+                metalness: 0.45
+            });
+
+            const roofMat = new THREE.MeshStandardMaterial({
+                color: 0x2d6760,
+                roughness: 0.28,
+                metalness: 0.6
+            });
+
+            function addMesh(mesh) {
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                group.add(mesh);
+                return mesh;
+            }
+
+            // 大型裙樓，讓台北101下方比較像真實建築群
+            const podium = addMesh(new THREE.Mesh(
+                new THREE.BoxGeometry(110, 42, 90),
+                glassMat
+            ));
+            podium.position.y = 21;
+
+            const podiumFront = addMesh(new THREE.Mesh(
+                new THREE.BoxGeometry(125, 18, 16),
+                darkGlassMat
+            ));
+            podiumFront.position.set(0, 30, 52);
+
+            // 主塔底座
+            const towerBase = addMesh(new THREE.Mesh(
+                new THREE.BoxGeometry(64, 70, 64),
+                glassMat
+            ));
+            towerBase.position.y = 77;
+
+            // 8層竹節式主塔，每層有外凸框線
+            const sectionCount = 8;
+            const sectionH = 42;
+            const startY = 112;
+            for (let i = 0; i < sectionCount; i++) {
+                const y = startY + i * sectionH;
+
+                // 倒梯形塔身
+                const section = addMesh(new THREE.Mesh(
+                    new THREE.CylinderGeometry(34, 43, sectionH, 4),
+                    glassMat
+                ));
+                section.rotation.y = Math.PI / 4;
+                section.position.y = y;
+
+                // 每層底部銀色腰帶
+                const belt = addMesh(new THREE.Mesh(
+                    new THREE.CylinderGeometry(45, 45, 4, 4),
+                    edgeMat
+                ));
+                belt.rotation.y = Math.PI / 4;
+                belt.position.y = y - sectionH / 2 + 4;
+
+                // 深色玻璃窗線，讓它看起來更像3D模型
+                for (let side = 0; side < 4; side++) {
+                    const win = addMesh(new THREE.Mesh(
+                        new THREE.BoxGeometry(26, 28, 1.2),
+                        darkGlassMat
+                    ));
+                    const angle = side * Math.PI / 2;
+                    const r = 43.2;
+                    win.position.set(Math.sin(angle) * r, y + 1, Math.cos(angle) * r);
+                    win.rotation.y = angle;
+                }
+            }
+
+            // 頂部小塔樓
+            const top1 = addMesh(new THREE.Mesh(
+                new THREE.BoxGeometry(44, 36, 44),
+                glassMat
+            ));
+            top1.position.y = startY + sectionCount * sectionH + 10;
+
+            const top2 = addMesh(new THREE.Mesh(
+                new THREE.BoxGeometry(28, 34, 28),
+                roofMat
+            ));
+            top2.position.y = startY + sectionCount * sectionH + 45;
+
+            // 塔尖與天線
+            const spireBase = addMesh(new THREE.Mesh(
+                new THREE.CylinderGeometry(8, 12, 32, 8),
+                roofMat
+            ));
+            spireBase.position.y = startY + sectionCount * sectionH + 78;
+
+            const spire = addMesh(new THREE.Mesh(
+                new THREE.CylinderGeometry(2.2, 3.2, 110, 12),
+                edgeMat
+            ));
+            spire.position.y = startY + sectionCount * sectionH + 140;
+
+            // 頂端紅燈
+            const redLight = addMesh(new THREE.Mesh(
+                new THREE.SphereGeometry(5, 16, 16),
+                new THREE.MeshBasicMaterial({ color: 0xff3333 })
+            ));
+            redLight.position.y = startY + sectionCount * sectionH + 198;
+
+            // 四個角落的直向框線
+            for (let i = 0; i < 4; i++) {
+                const corner = addMesh(new THREE.Mesh(
+                    new THREE.BoxGeometry(3, 360, 3),
+                    edgeMat
+                ));
+                const sx = i < 2 ? -1 : 1;
+                const sz = i % 2 === 0 ? -1 : 1;
+                corner.position.set(sx * 37, 265, sz * 37);
+            }
+
+            group.position.set(0, 0, -200);
+            group.scale.set(1.05, 1.05, 1.05);
+            return group;
         }
 
-        // 頂部塔樓
-        const topBlock = new THREE.Mesh(new THREE.BoxGeometry(30, 40, 30), t101Mat);
-        topBlock.position.y = 80 + (8 * 40) + 20;
-        topBlock.castShadow = true;
-        t101.add(topBlock);
-
-        // 塔尖
-        const spire = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 80, 8), t101Mat);
-        spire.position.y = 80 + (8 * 40) + 40 + 40;
-        t101.add(spire);
-
-        t101.position.set(0, 0, -200); // 放置在場景中央偏前
+        const t101 = makeTaipei101();
         scene.add(t101);
-        // 簡化成一個可降落的台北101頂部碰撞範圍
-        addLandingSurface(0, -200, 80, 80, 480);
+
+        // 台北101頂部可降落範圍
+        addLandingSurface(0, -200, 70, 70, 560);
 
         // ==========================================
         // 簡單任務：穿過黃色圓環，再降落到綠色降落點
