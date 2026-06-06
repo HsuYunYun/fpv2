@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FPV 無人機飛行訓練 - 台北天際線版</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #000; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* 真實圖傳鏡頭濾鏡 (保留些微暗角與掃描線) */
+        #camera-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 2;
+            background: 
+                linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.08) 50%),
+                radial-gradient(circle at center, rgba(0,0,0,0) 50%, rgba(0,0,0,0.4) 100%);
+            background-size: 100% 4px, 100% 100%;
+            opacity: 0.9;
+        }
+        /* UI 疊層 */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            z-index: 3;
+        }
+        /* 雷達框 */
+        #radar-border {
+            position: absolute;
+            top: 20px; left: 20px;
+            width: 180px; height: 180px;
+            border: 2px solid rgba(0, 255, 0, 0.8);
+            background: rgba(0, 30, 0, 0.4);
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.4);
+            overflow: hidden;
+            background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,0,0.2) 2px, rgba(0,255,0,0.2) 4px);
+        }
+        /* 十字準星 */
+        #crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 40px; height: 40px;
+            transform: translate(-50%, -50%);
+            z-index: 5;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: rgba(0, 255, 0, 1);
+            box-shadow: 0 0 4px rgba(0,0,0,0.8);
+        }
+        #crosshair::before { top: 19px; left: 0; width: 40px; height: 2px; }
+        #crosshair::after { top: 0; left: 19px; width: 2px; height: 40px; }
+        #crosshair .center-dot {
+            position: absolute; top: 18px; left: 18px; width: 4px; height: 4px;
+            background: red; border-radius: 50%; box-shadow: 0 0 5px #000;
+        }
+
+        /* 水平儀容器 */
+        #artificial-horizon {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 500px; height: 500px;
+            transform: translate(-50%, -50%);
+            overflow: hidden;
+        }
+        /* 水平儀線條 */
+        #horizon-line {
+            position: absolute;
+            top: 50%; left: 10%; 
+            width: 80%; height: 2px;
+            background: linear-gradient(to right, rgba(0, 255, 0, 1) 42%, transparent 42%, transparent 58%, rgba(0, 255, 0, 1) 58%);
+            box-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+            transform-origin: center;
+        }
+        #horizon-line::before, #horizon-line::after {
+            content: ''; position: absolute;
+            top: 0px; width: 2px; height: 15px;
+            background-color: rgba(0, 255, 0, 1);
+            box-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+        }
+        #horizon-line::before { left: 20%; }
+        #horizon-line::after { right: 20%; }
+        
+        /* 儀表板資訊 (加入黑色文字陰影以適應白天背景) */
+        #hud-info {
+            position: absolute;
+            top: 20px; right: 20px;
+            color: #0f0;
+            text-align: right;
+            text-shadow: 2px 2px 4px #000, -1px -1px 2px #000;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        #mission-box {
+            position: absolute;
+            left: 20px; bottom: 80px;
+            width: 330px;
+            padding: 12px 14px;
+            color: #0f0;
+            border: 2px solid rgba(0, 255, 0, 0.75);
+            background: rgba(0, 20, 0, 0.45);
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            font-size: 15px;
+            line-height: 1.5;
+            text-shadow: 2px 2px 4px #000;
+        }
+        #blocker {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center; justify-content: center;
+            z-index: 100;
+            color: #0f0; font-size: 24px; cursor: pointer;
+            font-family: monospace; letter-spacing: 2px;
+            text-shadow: 2px 2px 4px #000;
+        }
+        @media (hover: none) and (pointer: coarse) {
+            #blocker { display: none; }
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px; width: 100%;
+            text-align: center;
+            color: rgba(0, 255, 0, 0.9);
+            font-family: monospace;
+            text-shadow: 2px 2px 4px #000, -1px -1px 2px #000;
+            font-size: 14px;
+            pointer-events: auto;
+        }
+        #joystick-zone {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: auto; z-index: 10;
+        }
+        @media (hover: hover) and (pointer: fine) {
+            #joystick-zone { display: none; }
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+</head>
+<body>
+    <div id="camera-overlay"></div>
+    <div id="blocker">[ 點擊畫面以啟動無人機圖傳 (滑鼠控制視角) ]</div>
+    <div id="joystick-zone"></div>
+
+    <div id="ui-layer">
+        <div id="radar-border"></div>
+        <div id="crosshair"><div class="center-dot"></div></div>
+        <div id="artificial-horizon">
+            <div id="horizon-line"></div>
+        </div>
+        <div id="hud-info">
+            ALT: <span id="alt-val">0.0</span> m<br>
+            SPD: <span id="spd-val">0.0</span> km/h<br>
+            PWR: <span id="pwr-val" style="color:#ffaa00">98%</span>
+        </div>
+        <div id="mission-box">
+            任務：穿過黃色圓環<br>
+            狀態：<span id="mission-status">前往台北101旁的黃色檢查點</span>
+        </div>
+        <div id="instructions">
+            <b>[ SYSTEM LINKED ]</b><br>
+            [W/A/S/D] 水平移動 | [空白鍵/Shift] 垂直升降 | [滑鼠] 視角方向
+        </div>
+    </div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // ==========================================
+        // 1. 基本場景與渲染器設定 (白天晴空)
+        // ==========================================
+        const scene = new THREE.Scene();
+        // 蔚藍的天空與白色的遠處霧氣
+        scene.background = new THREE.Color(0x5ca8f5); 
+        scene.fog = new THREE.FogExp2(0x8bcafc, 0.0006); 
+
+        // 白天模式不需要過多的後期處理，改用原生的 WebGLRenderer 讓畫面更清晰銳利
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio > 1 ? 1.5 : 1);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2; // 提高整體曝光度
+        document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+        // ==========================================
+        // 2. 攝影機系統
+        // ==========================================
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 4000);
+        const cameraTilt = THREE.MathUtils.degToRad(15);
+        camera.rotation.x = cameraTilt; 
+
+        const radarSize = 180; 
+        const radarCam = new THREE.OrthographicCamera(-250, 250, 250, -250, 0.1, 2000);
+        radarCam.position.set(0, 1500, 0);
+        radarCam.lookAt(0, 0, 0);
+
+        // ==========================================
+        // 3. 無人機與螺旋槳模型設定
+        // ==========================================
+        const droneGroup = new THREE.Group();
+        droneGroup.position.set(0, 150, 300); // 起始位置調高，方便俯瞰
+        
+        const attitudeGroup = new THREE.Group();
+        droneGroup.add(attitudeGroup);
+        attitudeGroup.add(camera);
+
+        const propGroup1 = new THREE.Group();
+        const propGroup2 = new THREE.Group();
+        
+        const bladeGeom = new THREE.BoxGeometry(0.5, 0.02, 0.06);
+        const bladeMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8, roughness: 0.2 });
+        const blade1 = new THREE.Mesh(bladeGeom, bladeMat);
+        const blade2 = new THREE.Mesh(bladeGeom, bladeMat);
+        
+        const blurGeom = new THREE.CylinderGeometry(0.26, 0.26, 0.01, 16);
+        const blurMat = new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+        const blur1 = new THREE.Mesh(blurGeom, blurMat);
+        const blur2 = new THREE.Mesh(blurGeom, blurMat);
+
+        propGroup1.add(blade1, blur1);
+        propGroup2.add(blade2, blur2);
+        propGroup1.position.set(-0.6, -0.35, -0.8);
+        propGroup2.position.set(0.6, -0.35, -0.8);
+        
+        propGroup1.rotation.x = THREE.MathUtils.degToRad(-10);
+        propGroup2.rotation.x = THREE.MathUtils.degToRad(-10);
+
+        camera.add(propGroup1);
+        camera.add(propGroup2);
+
+        const indicatorGeom = new THREE.ConeGeometry(12, 30, 3);
+        indicatorGeom.rotateX(Math.PI / 2);
+        const indicatorMat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); 
+        const radarIndicator = new THREE.Mesh(indicatorGeom, indicatorMat);
+        radarIndicator.position.y = 80; 
+        droneGroup.add(radarIndicator);
+
+        scene.add(droneGroup);
+        radarIndicator.layers.set(1); 
+        radarCam.layers.enable(1);    
+        camera.layers.disable(1);     
+
+        // ==========================================
+        // 4. 逼真環境與光影 (白天都市與綠山)
+        // ==========================================
+        // 充足的環境光
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        
+        // 強烈的陽光
+        const sunLight = new THREE.DirectionalLight(0xffffee, 2.0);
+        sunLight.position.set(800, 1500, 500);
+        sunLight.castShadow = true;
+        sunLight.shadow.camera.left = -1500;
+        sunLight.shadow.camera.right = 1500;
+        sunLight.shadow.camera.top = 1500;
+        sunLight.shadow.camera.bottom = -1500;
+        sunLight.shadow.mapSize.width = 4096;
+        sunLight.shadow.mapSize.height = 4096;
+        sunLight.shadow.bias = -0.0005;
+        scene.add(sunLight);
+
+        // 地面 (淺灰色水泥/柏油路)
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(6000, 6000),
+            new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.8, metalness: 0.1 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // 遠處的綠色山脈 (模擬台北盆地)
+        const mountainGeo = new THREE.SphereGeometry(800, 32, 32);
+        const mountainMat = new THREE.MeshStandardMaterial({ color: 0x3d702b, roughness: 0.9, flatShading: true });
+        for (let i = 0; i < 8; i++) {
+            const mountain = new THREE.Mesh(mountainGeo, mountainMat);
+            const angle = (i / 8) * Math.PI * 2;
+            mountain.position.set(Math.cos(angle) * 2500, -300, Math.sin(angle) * 2500);
+            mountain.scale.set(1, 0.6 + Math.random()*0.6, 1);
+            scene.add(mountain);
+        }
+
+        // 可降落表面：地面與各建築物屋頂
+        const landingSurfaces = [];
+        function addLandingSurface(x, z, width, depth, topY) {
+            landingSurfaces.push({ x, z, width, depth, topY });
+        }
+
+        // ==========================================
+        // ★ 生成 台北101 地標建築
+        // ==========================================
+        const t101Mat = new THREE.MeshStandardMaterial({ color: 0x5a9a8b, roughness: 0.2, metalness: 0.7 }); // 經典藍綠色玻璃
+        const t101 = new THREE.Group();
+
+        // 底部基座
+        const base = new THREE.Mesh(new THREE.BoxGeometry(60, 80, 60), t101Mat);
+        base.position.y = 40;
+        base.castShadow = true; base.receiveShadow = true;
+        t101.add(base);
+
+        // 8層倒梯形斗拱結構
+        for (let i = 0; i < 8; i++) {
+            // 利用 CylinderGeometry(上圓半徑, 下圓半徑, 高, 邊數) 生成梯形方塊
+            const section = new THREE.Mesh(new THREE.CylinderGeometry(38, 30, 40, 4), t101Mat);
+            section.rotation.y = Math.PI / 4; // 轉45度變成方形
+            section.position.y = 80 + 20 + (i * 40);
+            section.castShadow = true; section.receiveShadow = true;
+            t101.add(section);
+        }
+
+        // 頂部塔樓
+        const topBlock = new THREE.Mesh(new THREE.BoxGeometry(30, 40, 30), t101Mat);
+        topBlock.position.y = 80 + (8 * 40) + 20;
+        topBlock.castShadow = true;
+        t101.add(topBlock);
+
+        // 塔尖
+        const spire = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 80, 8), t101Mat);
+        spire.position.y = 80 + (8 * 40) + 40 + 40;
+        t101.add(spire);
+
+        t101.position.set(0, 0, -200); // 放置在場景中央偏前
+        scene.add(t101);
+        // 簡化成一個可降落的台北101頂部碰撞範圍
+        addLandingSurface(0, -200, 80, 80, 480);
+
+        // ==========================================
+        // 簡單任務：穿過黃色圓環，再降落到綠色降落點
+        // ==========================================
+        const checkpoint = new THREE.Mesh(
+            new THREE.TorusGeometry(35, 3, 12, 48),
+            new THREE.MeshBasicMaterial({ color: 0xffff00 })
+        );
+        checkpoint.position.set(0, 220, -420);
+        checkpoint.rotation.y = Math.PI / 2;
+        scene.add(checkpoint);
+
+        const landingPad = new THREE.Mesh(
+            new THREE.CylinderGeometry(45, 45, 2, 48),
+            new THREE.MeshBasicMaterial({ color: 0x00ff66, transparent: true, opacity: 0.8 })
+        );
+        landingPad.position.set(260, 1, -360);
+        landingPad.receiveShadow = true;
+        scene.add(landingPad);
+
+        let missionStep = 0; // 0: 找圓環, 1: 降落, 2: 完成
+
+        // ==========================================
+        // 生成一般城市建築群 (淺色、玻璃系)
+        // ==========================================
+        const buildingColors = [0xffffff, 0xf0f0f0, 0xe2d5c3, 0x8ab6d6, 0xaaaaaa, 0x99aab5, 0xd5e8ec];
+        const buildings = [];
+        const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+        
+        for (let i = 0; i < 300; i++) {
+            const mat = new THREE.MeshStandardMaterial({ 
+                color: buildingColors[Math.floor(Math.random() * buildingColors.length)],
+                roughness: Math.random() > 0.5 ? 0.2 : 0.8, // 隨機玻璃或水泥質感
+                metalness: 0.3
+            });
+            const building = new THREE.Mesh(boxGeo, mat);
+            
+            const width = 20 + Math.random() * 40;
+            const depth = 20 + Math.random() * 40;
+            const height = 30 + Math.random() * 150; 
+            
+            building.scale.set(width, height, depth);
+            
+            let x, z;
+            do {
+                x = (Math.random() - 0.5) * 3000;
+                z = (Math.random() - 0.5) * 3000;
+            } while (Math.abs(x) < 150 && Math.abs(z) < 150); // 避開中心區域
+            
+            building.position.set(x, height / 2, z);
+            addLandingSurface(x, z, width, depth, height);
+            building.castShadow = true;
+            building.receiveShadow = true;
+            scene.add(building);
+            buildings.push(building);
+        }
+
+        // 行駛中的汽車 (白天正常顏色)
+        const cars = [];
+        const carGeo = new THREE.BoxGeometry(3, 1.5, 6);
+        const carColors = [0xffffff, 0x111111, 0xcccccc, 0xdd2222, 0x2244bb];
+        for (let i = 0; i < 40; i++) {
+            const carMat = new THREE.MeshStandardMaterial({ 
+                color: carColors[Math.floor(Math.random() * carColors.length)],
+                roughness: 0.3, metalness: 0.5
+            });
+            const car = new THREE.Mesh(carGeo, carMat);
+            car.position.set((Math.random() - 0.5) * 1500, 0.75, (Math.random() - 0.5) * 1500);
+            car.userData = {
+                speed: 3 + Math.random() * 4,
+                direction: Math.random() > 0.5 ? 1 : -1,
+                axis: Math.random() > 0.5 ? 'x' : 'z'
+            };
+            if (car.userData.axis === 'x') car.rotation.y = Math.PI / 2;
+            car.castShadow = true;
+            scene.add(car);
+            cars.push(car);
+        }
+
+        // ==========================================
+        // 5. 操控與物理邏輯
+        // ==========================================
+        const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0 };
+        const velocity = new THREE.Vector3();
+        let isPointerLocked = false;
+        
+        const keys = { w: false, s: false, a: false, d: false, space: false, shift: false };
+        window.addEventListener('keydown', (e) => updateKey(e.key, true));
+        window.addEventListener('keyup', (e) => updateKey(e.key, false));
+
+        function updateKey(key, isDown) {
+            const k = key.toLowerCase();
+            if (k === 'w') keys.w = isDown; 
+            if (k === 's') keys.s = isDown; 
+            if (k === 'a') keys.a = isDown; 
+            if (k === 'd') keys.d = isDown; 
+            if (k === ' ') keys.space = isDown; 
+            if (k === 'shift') keys.shift = isDown; 
+        }
+
+        const blocker = document.getElementById('blocker');
+        const isTouchDevice = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+        
+        if (!isTouchDevice) {
+            blocker.addEventListener('click', () => { document.body.requestPointerLock(); });
+            document.addEventListener('pointerlockchange', () => {
+                isPointerLocked = (document.pointerLockElement === document.body);
+                blocker.style.display = isPointerLocked ? 'none' : 'flex';
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (isPointerLocked) {
+                    // 降低滑鼠視角靈敏度，避免畫面轉太快
+                    droneGroup.rotation.y -= (e.movementX || 0) * 0.0009;
+                    camera.rotation.x -= (e.movementY || 0) * 0.0009;
+                    camera.rotation.x = Math.max(-Math.PI/2.2, Math.min(Math.PI/2.2, camera.rotation.x));
+                }
+            });
+        }
+
+        if (window.nipplejs && isTouchDevice) {
+            const zone = document.getElementById('joystick-zone');
+            const managerLeft = nipplejs.create({ zone: zone, mode: 'static', position: { left: '20%', bottom: '20%' }, color: 'white' });
+            managerLeft.on('move', (evt, data) => {
+                const max = Math.min(data.distance / 90, 1); 
+                input.roll = Math.cos(data.angle.radian) * max;
+                input.pitch = Math.sin(data.angle.radian) * max;
+            }).on('end', () => { input.roll = 0; input.pitch = 0; });
+
+            const managerRight = nipplejs.create({ zone: zone, mode: 'static', position: { right: '20%', bottom: '20%' }, color: 'white' });
+            managerRight.on('move', (evt, data) => {
+                const max = Math.min(data.distance / 90, 1);
+                input.yaw = -Math.cos(data.angle.radian) * max;
+                input.throttle = Math.sin(data.angle.radian) * max;
+            }).on('end', () => { input.yaw = 0; input.throttle = 0; });
+        }
+
+        // ==========================================
+        // 6. 主迴圈 (動畫與渲染)
+        // ==========================================
+        const clock = new THREE.Clock();
+        const altUI = document.getElementById('alt-val');
+        const spdUI = document.getElementById('spd-val');
+        const pwrUI = document.getElementById('pwr-val');
+        const missionStatusUI = document.getElementById('mission-status');
+        const horizonLine = document.getElementById('horizon-line');
+
+        function getLandingHeightAt(x, z) {
+            let top = 0; // 地面高度
+            for (const s of landingSurfaces) {
+                if (Math.abs(x - s.x) <= s.width / 2 + 5 && Math.abs(z - s.z) <= s.depth / 2 + 5) {
+                    top = Math.max(top, s.topY);
+                }
+            }
+            return top;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.1);
+
+            if (keys.w) input.pitch = 1; else if (keys.s) input.pitch = -1; else if (!isTouchDevice) input.pitch = 0;
+            if (keys.a) input.roll = -1; else if (keys.d) input.roll = 1; else if (!isTouchDevice) input.roll = 0;
+            if (keys.space) input.throttle = 1; else if (keys.shift) input.throttle = -1; else if (!isTouchDevice) input.throttle = 0;
+
+            if (window.nipplejs && isTouchDevice) {
+                droneGroup.rotation.y -= input.yaw * dt * 1.0;
+            }
+
+            const maxTilt = Math.PI / 6; // 降低傾斜角，飛行更穩
+            const targetPitch = -input.pitch * maxTilt;
+            const targetRoll = -input.roll * maxTilt;
+            attitudeGroup.rotation.x = THREE.MathUtils.lerp(attitudeGroup.rotation.x, targetPitch, 0.06);
+            attitudeGroup.rotation.z = THREE.MathUtils.lerp(attitudeGroup.rotation.z, targetRoll, 0.06);
+
+            const totalPitch = attitudeGroup.rotation.x + camera.rotation.x;
+            const pitchOffset = THREE.MathUtils.radToDeg(totalPitch) * 4; 
+            const rollAngle = THREE.MathUtils.radToDeg(attitudeGroup.rotation.z);
+            horizonLine.style.transform = `translateY(${pitchOffset}px) rotate(${-rollAngle}deg)`;
+
+            const forwardVector = new THREE.Vector3(0, 0, -1).applyQuaternion(droneGroup.quaternion);
+            const rightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(droneGroup.quaternion);
+            
+            const moveSpeed = 120; // 降低水平移動靈敏度
+            const verticalSpeed = 70; // 降低升降靈敏度
+
+            velocity.x = (forwardVector.x * input.pitch + rightVector.x * input.roll) * moveSpeed;
+            velocity.z = (forwardVector.z * input.pitch + rightVector.z * input.roll) * moveSpeed;
+            velocity.y = input.throttle * verticalSpeed; 
+
+            droneGroup.position.add(velocity.clone().multiplyScalar(dt));
+
+            const landingHeight = getLandingHeightAt(droneGroup.position.x, droneGroup.position.z);
+            const minFlyHeight = landingHeight + 1;
+            let isLanded = false;
+            if (droneGroup.position.y < minFlyHeight) {
+                droneGroup.position.y = minFlyHeight;
+                if (velocity.y < 0) velocity.y = 0;
+            }
+            if (Math.abs(droneGroup.position.y - minFlyHeight) < 0.05 && input.throttle <= 0.05) {
+                isLanded = true;
+            }
+
+            altUI.innerText = droneGroup.position.y.toFixed(1);
+            spdUI.innerText = (velocity.length() * 3.6).toFixed(0); 
+
+            // 螺旋槳：停在地面或建築物上且沒有起飛時會停止
+            const hasControlInput = Math.abs(input.throttle) > 0.05 || Math.abs(input.pitch) > 0.05 || Math.abs(input.roll) > 0.05;
+            const propSpeed = (isLanded && !hasControlInput) ? 0 : 0.7 + Math.abs(input.throttle) * 1.8 + Math.abs(input.pitch) * 0.8 + Math.abs(input.roll) * 0.8;
+            propGroup1.rotation.y += propSpeed;
+            propGroup2.rotation.y -= propSpeed;
+            pwrUI.innerText = propSpeed === 0 ? 'OFF' : '98%';
+            pwrUI.style.color = propSpeed === 0 ? '#ff4444' : '#ffaa00';
+
+            // 簡單任務判定
+            if (missionStep === 0 && droneGroup.position.distanceTo(checkpoint.position) < 45) {
+                missionStep = 1;
+                checkpoint.visible = false;
+                missionStatusUI.innerText = '已通過檢查點，請降落到綠色降落點';
+            }
+            if (missionStep === 1) {
+                const dx = droneGroup.position.x - landingPad.position.x;
+                const dz = droneGroup.position.z - landingPad.position.z;
+                const nearPad = Math.sqrt(dx * dx + dz * dz) < 45;
+                if (nearPad && isLanded) {
+                    missionStep = 2;
+                    missionStatusUI.innerText = '任務完成！成功降落';
+                    landingPad.material.color.set(0xffff00);
+                }
+            }
+
+            cars.forEach(car => {
+                car.position[car.userData.axis] += car.userData.speed * car.userData.direction;
+                if (car.position[car.userData.axis] > 1500) car.position[car.userData.axis] = -1500;
+                if (car.position[car.userData.axis] < -1500) car.position[car.userData.axis] = 1500;
+            });
+
+            radarCam.position.x = droneGroup.position.x;
+            radarCam.position.z = droneGroup.position.z;
+
+            // ==========================================
+            // 視窗渲染分割邏輯 (直接渲染，提升效能)
+            // ==========================================
+            renderer.setScissorTest(false);
+            renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+            renderer.render(scene, camera);
+
+            renderer.setScissorTest(true);
+            const radarOffsetLeft = 20;
+            const radarOffsetBottom = window.innerHeight - radarSize - 20; 
+            renderer.setViewport(radarOffsetLeft, radarOffsetBottom, radarSize, radarSize);
+            renderer.setScissor(radarOffsetLeft, radarOffsetBottom, radarSize, radarSize);
+            renderer.render(scene, radarCam);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
